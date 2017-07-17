@@ -1,0 +1,4 @@
+feedparser
+ics
+bs4
+urllib

@@ -1,28 +1,25 @@
 import urllib.parse
+from .CacheManager import *
 
-class FeedFindStrategy(object):
-	found_feeds = set()
-	possible_feeds = set()
-	def check_attribs(node, check, check_contains, return_attrb):
-		c = node.get(check, None)
-		if c:
-			for needed_attrib in check_contains:
-				if needed_attrib in c:
-					return node.get(return_attrb, None)
-		return None
+def check_attribs(node, check, check_contains, return_attrb):
+	c = node.get(check, None)
+	if c:
+		for needed_attrib in check_contains:
+			if needed_attrib in c:
+				return node.get(return_attrb, None)
+	return None
 
-class PageContentStrategy(FeedFindStrategy):
-	def __init__(self, feedfinder, key):
-		self.content = feedfinder.get_page_content(key=key)
-		self.feedfinder = feedfinder
+def find_child_pages(pages, url, cache):
+	possible_pages = set()
+	content = cache.get(key=url, itemName="page_content")
 
-class HrefStrategy(PageContentStrategy):
-	def __init__(self, feedfinder, key):
-		parsed_url = urllib.parse.urlparse(feedfinder.urls[key]['url'])
-		self.base_url = parsed_url.scheme + "://" + parsed_url.hostname
-		PageContentStrategy.__init__(self, feedfinder, key)
+	parsed_url = urllib.parse.urlparse(cache.get(key=url, itemName='url'))
+	base_url = parsed_url.scheme + "://" + parsed_url.hostname
 
-class ChildPageStrategy(HrefStrategy):
-	def __init__(self, feedfinder, validator, key):
-		self.validator = validator
-		HrefStrategy.__init__(self, feedfinder, key)
+	for a in content.findAll("a", href=True):
+		href = a.get("href")
+		for term in pages:
+			if term in href or (a.text and term in a.text.lower()):
+				if "://" in href: possible_pages.add(href)
+				else: possible_pages.add(base_url + href)
+	return possible_pages

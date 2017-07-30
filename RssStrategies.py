@@ -2,54 +2,53 @@ import requests
 from .Strategies import *
 from .validators import *
 
-class LinkRelRssStrategy(PageContentStrategy):
-	def execute(self):
-		print("Executing RSS link rel strategy")
-		for f in self.content.findAll("link", rel="alternate"):
-			found_feed = FeedFindStrategy.check_attribs(node=f, check="type", check_contains=["rss", "xml"], return_attrb="href")
-			if found_feed: self.possible_feeds.add(found_feed)
-		return self.possible_feeds
+def LinkRelRssStrategy(cache, url):
+	feeds = set()
+	content = cache.get(key=url, itemName="page_content")
 
-class HyperlinkRssStrategy(HrefStrategy):
-	def execute(self):
-		print("Executing RSS hyperlink strategy")
-		for a in self.content.findAll("a", href=True):
-			found_feed = FeedFindStrategy.check_attribs(node=a, check="href", check_contains=["rss", "xml"], return_attrb="href")
-			if found_feed:
-				if "://" in href: self.possible_feeds.add(found_feed)
-				else: self.possible_feeds.add(self.base_url + found_feed)
-		return self.possible_feeds
+	print("Executing RSS link rel strategy on page %s" % url)
+	for f in content.findAll("link", rel="alternate"):
+		found_feed = check_attribs(node=f, check="type", check_contains=["rss", "xml"], return_attrb="href")
+		if found_feed:
+			feeds.add(found_feed)
+	return feeds
 
-class ChildPageRssStrategy(ChildPageStrategy):
-	def execute(self):
-		print("Executing RSS child page strategy")
-		possible_pages = set()
-		for a in self.content.findAll("a", href=True):
-			for term in [ "blog", "news", "rss", "feed" ]:
-				if term in a.text.lower():
-					href = a.get("href")
-					if "://" in href: possible_pages.add(href)
-					else: possible_pages.add(self.base_url + href)
+def HyperlinkRssStrategy(url, cache):
+	feeds = set()
+	content = cache.get(key=url, itemName="page_content")
 
-		for page in possible_pages:
-			self.validator.validate_page(page)
-			for strategy in [
-				self.validator,
-				DefaultRssStrategy(site=page),
-				LinkRelRssStrategy(feedfinder=self.feedfinder, key=page), 
-				HyperlinkRssStrategy(feedfinder=self.feedfinder, key=page),
-			]:
-				self.possible_feeds = self.possible_feeds.union(strategy.execute())
+	print("Executing RSS hyperlink strategy on page %s" % url)
+	for a in content.findAll("a", href=True):
+		found_feed = check_attribs(node=a, check="href", check_contains=["rss", "xml"], return_attrb="href")
+		if found_feed:
+			if "://" in a['href']: feeds.add(found_feed)
+			else: feeds.add(self.base_url + found_feed)
+	return feeds
 
-				self.feedfinder.feeds["rss_feeds"] = self.feedfinder.feeds["rss_feeds"].union(self.validator.validate(self.possible_feeds))
-				if self.feedfinder.feeds["rss_feeds"]: break
-		return self.feedfinder.feeds["rss_feeds"]
+def ChildPageRssStrategy(url, cache):
+	validator = RssValidator(cache=cache)
+	print("Executing RSS child page strategy on page %s" % url)
+	for page in find_child_pages(
+			pages=[ "blog", "news", "rss", "feed" ],
+			url=url,
+			cache=cache,
+		):
+		print("Found child page: %s" % page)
+		for strategy in [
+			DefaultRssStrategy,
+			LinkRelRssStrategy,
+			HyperlinkRssStrategy,
+		]:
+			possible_feeds = strategy(cache=cache, url=page)
+			feeds = validator.validate(possible_feeds)
+			if feeds: return feeds
+	return set()
 
-class DefaultRssStrategy(FeedFindStrategy):
-	def __init__(self, site):
-		self.site = site
-	def execute(self):
-		print("Executing RSS default feed location strategy")
-		r = requests.get(self.site + "/feed")
-		if r.status_code == requests.codes.ok: self.possible_feeds.add(r.url) 
-		return self.possible_feeds
+def DefaultRssStrategy(cache, url):
+	print("Executing RSS default feed location strategy")
+	#r = requests.get(self.site + "/feed")
+	r = cache.get(key=url + "/feed/", itemName="page_src")
+	if r and r.status_code == requests.codes.ok:
+		print("Found after "+ r.url + " after execution of default RSS strategy")
+		return { r.url }
+	return set()
